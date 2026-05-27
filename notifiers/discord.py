@@ -12,9 +12,10 @@ COLOR_MED  = 0x3498DB    # Blue   – relevant
 COLOR_LOW  = 0x95A5A6    # Grey   – low relevance
 
 PLATFORM_EMOJIS = {
-    "France Travail":       "🇫🇷",
-    "Indeed":               "🔍",
+    "France Travail":        "🇫🇷",
+    "Indeed":                "🔍",
     "Welcome to the Jungle": "🌴",
+    "LinkedIn":              "💼",
 }
 
 

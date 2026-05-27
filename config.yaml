@@ -86,6 +86,13 @@ plateformes:
   welcome_jungle:
     active: true   # Pas besoin de clé API
 
+  linkedin:
+    active: true
+    # Pas besoin de compte pour les résultats de base.
+    # Pour de meilleurs résultats, ajoutez votre cookie li_at dans .env
+    # (voir .env.example pour les instructions)
+    li_at_cookie: ""   # Ou laissez vide et mettez la valeur dans .env
+
 
 # ── Notifications ────────────────────────────────────────────
 notifications:

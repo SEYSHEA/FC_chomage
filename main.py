@@ -22,6 +22,7 @@ from database.storage import Storage
 from notifiers.discord import DiscordNotifier
 from scrapers.france_travail import FranceTravailScraper
 from scrapers.indeed import IndeedScraper
+from scrapers.linkedin import LinkedInScraper
 from scrapers.welcome_jungle import WelcomeJungleScraper
 from utils.helpers import calculate_relevance, filter_jobs
 
@@ -56,6 +57,8 @@ def load_config() -> dict:
                         cfg["plateformes"]["france_travail"]["client_id"] = val
                     elif key == "FRANCE_TRAVAIL_CLIENT_SECRET" and val:
                         cfg["plateformes"]["france_travail"]["client_secret"] = val
+                    elif key == "LINKEDIN_LI_AT_COOKIE" and val:
+                        cfg["plateformes"]["linkedin"]["li_at_cookie"] = val
                     elif key == "DISCORD_WEBHOOK_URL" and val:
                         cfg["notifications"]["discord"]["webhook_url"] = val
 
@@ -88,6 +91,9 @@ def run_search(config: dict, storage: Storage, notifier: DiscordNotifier, dry_ru
 
     if config["plateformes"].get("welcome_jungle", {}).get("active"):
         scrapers.append(WelcomeJungleScraper(config))
+
+    if config["plateformes"].get("linkedin", {}).get("active"):
+        scrapers.append(LinkedInScraper(config))
 
     if not scrapers:
         log.error("❌  Aucune plateforme active. Vérifiez config.yaml.")
