@@ -93,6 +93,18 @@ plateformes:
     # (voir .env.example pour les instructions)
     li_at_cookie: ""   # Ou laissez vide et mettez la valeur dans .env
 
+  engagement_jeunes:
+    active: true
+    # engagement-jeunes.com — plateforme pour les jeunes (service civique, alternance, emploi)
+    #
+    # ⚠️  Si aucune offre n'apparaît, il faut identifier l'URL de l'API manuellement :
+    #   1. Ouvrez https://www.engagement-jeunes.com dans votre navigateur
+    #   2. Appuyez sur F12 → onglet "Réseau" (ou "Network")
+    #   3. Faites une recherche d'offres sur le site
+    #   4. Dans les requêtes réseau, cherchez un appel de type "Fetch/XHR" avec des offres en JSON
+    #   5. Copiez l'URL de base (sans les paramètres) et collez-la ci-dessous
+    api_url: ""   # Ex: "https://www.engagement-jeunes.com/api/offres"
+
 
 # ── Notifications ────────────────────────────────────────────
 notifications:
