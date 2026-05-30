@@ -64,6 +64,8 @@ def load_config() -> dict:
                         cfg["plateformes"]["linkedin"]["li_at_cookie"] = val
                     elif key == "DISCORD_WEBHOOK_URL" and val:
                         cfg["notifications"]["discord"]["webhook_url"] = val
+                    elif key == "ENGAGEMENT_JEUNES_COOKIES" and val:
+                        cfg["plateformes"]["engagement_jeunes"]["cookies"] = val
 
     return cfg
 

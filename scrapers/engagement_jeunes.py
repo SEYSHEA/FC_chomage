@@ -143,10 +143,12 @@ class EngagementJeunesScraper(BaseScraper):
     def __init__(self, config: dict):
         super().__init__(config)
         ej_cfg = config.get("plateformes", {}).get("engagement_jeunes", {})
-        # Allow user to set the exact API endpoint after discovery (see README)
         self._custom_api_url: str = ej_cfg.get("api_url", "").strip()
+        self._cookies: str        = ej_cfg.get("cookies", "").strip()
         self._session = requests.Session()
         self._session.headers.update(HEADERS)
+        if self._cookies:
+            self._session.headers["Cookie"] = self._cookies
         self._discovered_url: str = ""
 
     def _discover_api_url(self) -> str:
