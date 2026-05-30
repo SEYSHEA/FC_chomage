@@ -93,6 +93,16 @@ plateformes:
     # (voir .env.example pour les instructions)
     li_at_cookie: ""   # Ou laissez vide et mettez la valeur dans .env
 
+  apec:
+    active: true
+    # apec.fr — LE site des cadres en France
+    # Aucune clé API nécessaire
+
+  hellowork:
+    active: true
+    # hellowork.com — grand généraliste français (tech, data, ingénierie)
+    # Aucune clé API nécessaire
+
   engagement_jeunes:
     active: true
     # engagement-jeunes.com — plateforme pour les jeunes (service civique, alternance, emploi)

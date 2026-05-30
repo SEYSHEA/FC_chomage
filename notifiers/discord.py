@@ -17,6 +17,8 @@ PLATFORM_EMOJIS = {
     "Welcome to the Jungle": "🌴",
     "LinkedIn":              "💼",
     "Engagement Jeunes":     "🌱",
+    "APEC":                  "🎯",
+    "HelloWork":             "👋",
 }
 
 

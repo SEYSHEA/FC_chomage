@@ -20,8 +20,10 @@ import yaml
 
 from database.storage import Storage
 from notifiers.discord import DiscordNotifier
+from scrapers.apec import ApecScraper
 from scrapers.engagement_jeunes import EngagementJeunesScraper
 from scrapers.france_travail import FranceTravailScraper
+from scrapers.hellowork import HelloWorkScraper
 from scrapers.indeed import IndeedScraper
 from scrapers.linkedin import LinkedInScraper
 from scrapers.welcome_jungle import WelcomeJungleScraper
@@ -98,6 +100,12 @@ def run_search(config: dict, storage: Storage, notifier: DiscordNotifier, dry_ru
 
     if config["plateformes"].get("engagement_jeunes", {}).get("active"):
         scrapers.append(EngagementJeunesScraper(config))
+
+    if config["plateformes"].get("apec", {}).get("active"):
+        scrapers.append(ApecScraper(config))
+
+    if config["plateformes"].get("hellowork", {}).get("active"):
+        scrapers.append(HelloWorkScraper(config))
 
     if not scrapers:
         log.error("❌  Aucune plateforme active. Vérifiez config.yaml.")
