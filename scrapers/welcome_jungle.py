@@ -1,5 +1,6 @@
 import logging
 import time
+import urllib.parse
 import requests
 from .base import BaseScraper, Job
 
@@ -27,25 +28,17 @@ CONTRACT_MAP = {
     "Freelance":  "FREELANCE",
 }
 
-ATTRS = ",".join([
-    "name", "organization.name", "organization.slug", "slug",
-    "contract_type", "salary_yearly_minimum", "salary_yearly_maximum",
-    "salary_currency", "offices", "published_at", "reference", "remote",
-    "experience_level_minimum", "description",
-])
-
-# Coordonnées GPS des villes principales
 CITY_COORDS = {
-    "paris":              (48.8566,  2.3522),
-    "nice":               (43.7102,  7.2620),
-    "marseille":          (43.2965,  5.3698),
-    "lyon":               (45.7640,  4.8357),
-    "bordeaux":           (44.8378, -0.5792),
-    "toulouse":           (43.6047,  1.4442),
-    "lille":              (50.6292,  3.0573),
-    "sophia antipolis":   (43.6167,  7.0500),
-    "aix-en-provence":    (43.5297,  5.4474),
-    "remote":             (48.8566,  2.3522),  # fallback Paris pour remote
+    "paris":            (48.8566,  2.3522),
+    "nice":             (43.7102,  7.2620),
+    "marseille":        (43.2965,  5.3698),
+    "lyon":             (45.7640,  4.8357),
+    "bordeaux":         (44.8378, -0.5792),
+    "toulouse":         (43.6047,  1.4442),
+    "lille":            (50.6292,  3.0573),
+    "sophia antipolis": (43.6167,  7.0500),
+    "aix-en-provence":  (43.5297,  5.4474),
+    "remote":           (48.8566,  2.3522),
 }
 
 
@@ -53,35 +46,51 @@ def _get_coords(location: str) -> tuple[float, float]:
     return CITY_COORDS.get(location.lower().split(",")[0].strip(), (48.8566, 2.3522))
 
 
+def _safe_get(obj, *keys, default=""):
+    """Traverse nested dicts safely; returns default if any level is not a dict."""
+    for k in keys:
+        if not isinstance(obj, dict):
+            return default
+        obj = obj.get(k, default)
+    return obj if obj is not None else default
+
+
 def _build_params_str(keyword: str, contract_codes: list[str], location: str, rayon_km: int) -> str:
     lat, lng = _get_coords(location)
-    radius_m = rayon_km * 1000
-
-    parts = [
-        f"query={keyword}",
-        f"aroundLatLng={lat},{lng}",
-        f"aroundRadius={radius_m}",
-        "hitsPerPage=50",
-        "page=0",
-    ]
-
+    # urllib.parse.urlencode handles spaces and special chars properly
+    params = {
+        "query":        keyword,
+        "aroundLatLng": f"{lat},{lng}",
+        "aroundRadius": rayon_km * 1000,
+        "hitsPerPage":  50,
+        "page":         0,
+    }
     if contract_codes:
         ct_filter = " OR ".join(f'contract_type:"{c}"' for c in contract_codes)
-        parts.append(f"filters=({ct_filter})")
+        params["filters"] = f"({ct_filter})"
 
-    return "&".join(parts)
+    return urllib.parse.urlencode(params)
 
 
 def _parse_hit(hit: dict) -> Job | None:
+    if not isinstance(hit, dict):
+        return None
+
     title = hit.get("name") or ""
     if not title:
         return None
 
-    org        = hit.get("organization") or {}
-    company    = org.get("name") or "Entreprise non précisée"
-    org_slug   = org.get("slug") or ""
-    job_slug   = hit.get("slug") or ""
-    ref        = hit.get("reference") or ""
+    # organization peut être un dict OU absent si Algolia renvoie les champs à plat
+    org = hit.get("organization")
+    if isinstance(org, dict):
+        company  = org.get("name") or "Entreprise non précisée"
+        org_slug = org.get("slug") or ""
+    else:
+        company  = str(org) if org else "Entreprise non précisée"
+        org_slug = ""
+
+    job_slug = hit.get("slug") or ""
+    ref      = hit.get("reference") or ""
 
     if org_slug and job_slug:
         url = f"https://www.welcometothejungle.com/fr/companies/{org_slug}/jobs/{job_slug}"
@@ -90,9 +99,16 @@ def _parse_hit(hit: dict) -> Job | None:
     else:
         return None
 
-    offices = hit.get("offices") or [{}]
-    city    = offices[0].get("city") or ""
-    country = (offices[0].get("country") or {}).get("name") or "France"
+    # offices est une liste de dicts, mais chaque élément peut varier
+    offices     = hit.get("offices") or []
+    first_off   = offices[0] if offices else {}
+    if isinstance(first_off, dict):
+        city        = first_off.get("city") or ""
+        country_raw = first_off.get("country")
+        country     = _safe_get(country_raw, "name", default="France") if isinstance(country_raw, dict) else (str(country_raw) if country_raw else "France")
+    else:
+        city    = str(first_off) if first_off else ""
+        country = "France"
     loc_str = f"{city}, {country}" if city else "France"
 
     contract = hit.get("contract_type") or ""
@@ -101,10 +117,13 @@ def _parse_hit(hit: dict) -> Job | None:
     sal_max  = hit.get("salary_yearly_maximum")
     currency = hit.get("salary_currency") or "€"
     salary   = ""
-    if sal_min and sal_max:
-        salary = f"{int(sal_min):,} – {int(sal_max):,} {currency}/an"
-    elif sal_min:
-        salary = f"À partir de {int(sal_min):,} {currency}/an"
+    try:
+        if sal_min and sal_max:
+            salary = f"{int(sal_min):,} – {int(sal_max):,} {currency}/an"
+        elif sal_min:
+            salary = f"À partir de {int(sal_min):,} {currency}/an"
+    except (ValueError, TypeError):
+        pass
 
     date = str(hit.get("published_at") or "")[:10]
     desc = str(hit.get("description") or "")[:500]
@@ -136,28 +155,36 @@ class WelcomeJungleScraper(BaseScraper):
 
         contract_types = self.config.get("contrat", {}).get("types", [])
         contract_codes = [CONTRACT_MAP[c] for c in contract_types if c in CONTRACT_MAP]
-        rayon_km = self.config.get("localisation", {}).get("rayon_km", 50)
+        rayon_km       = self.config.get("localisation", {}).get("rayon_km", 50)
 
         for i, keyword in enumerate(keywords[:8]):
             if len(jobs) >= self.max_results:
                 break
-
             if i > 0:
                 time.sleep(1)
 
             params_str = _build_params_str(keyword, contract_codes, location, rayon_km)
-            payload = {"requests": [{"indexName": INDEX_NAME, "params": params_str}]}
+            payload    = {"requests": [{"indexName": INDEX_NAME, "params": params_str}]}
 
             try:
                 resp = self._session.post(ALGOLIA_URL, json=payload, timeout=20)
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as e:
-                log.warning(f"Welcome to the Jungle erreur pour '{keyword}': {e}")
+                log.warning(f"Welcome to the Jungle erreur pour '{keyword}' ({location}): {e}")
                 continue
 
-            hits = (data.get("results") or [{}])[0].get("hits") or []
-            for hit in hits[: self.max_results]:
+            if not isinstance(data, dict):
+                log.warning(f"Welcome to the Jungle: réponse inattendue ({type(data).__name__}) pour '{keyword}'")
+                continue
+
+            results = data.get("results")
+            if not isinstance(results, list) or not results:
+                log.debug(f"Welcome to the Jungle: pas de results pour '{keyword}'. Réponse: {data}")
+                continue
+
+            hits = results[0].get("hits") if isinstance(results[0], dict) else []
+            for hit in (hits or [])[: self.max_results]:
                 job = _parse_hit(hit)
                 if job and job.url not in seen_urls:
                     seen_urls.add(job.url)
