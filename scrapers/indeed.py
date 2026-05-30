@@ -1,146 +1,87 @@
 import logging
-import re
-import time
-import requests
-from bs4 import BeautifulSoup
 from .base import BaseScraper, Job
 
 log = logging.getLogger(__name__)
 
-SEARCH_URL = "https://fr.indeed.com/emplois"
-
-HEADERS = {
-    # macOS + Chrome User-Agent — moins filtré qu'un Windows UA sur Indeed FR
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
-    "Accept":          "text/html,application/xhtml+xml,*/*;q=0.8",
-    "Accept-Language": "fr-FR,fr;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-}
-
-
-def _parse_cards(soup: BeautifulSoup, location: str) -> list[Job]:
-    jobs: list[Job] = []
-
-    # Indeed refreshes selectors often — try in order of reliability
-    cards = (
-        soup.select("div.job_seen_beacon")
-        or soup.select("li.css-1ac2h1w")
-        or soup.select("[data-jk]")
-        or soup.select("div[class*='jobCard']")
-    )
-
-    for card in cards:
-        # Title + URL
-        title_el = (
-            card.select_one("h2.jobTitle a span")
-            or card.select_one("h2 a span")
-            or card.select_one("a[data-jk] span")
-            or card.select_one("h2 span")
-        )
-        link_el = (
-            card.select_one("h2.jobTitle a[href]")
-            or card.select_one("a[data-jk]")
-            or card.select_one("a[href*='/rc/clk']")
-            or card.select_one("a[href*='/pagead/clk']")
-        )
-
-        if not title_el or not link_el:
-            continue
-
-        title = title_el.get_text(strip=True)
-        href  = link_el.get("href", "")
-        if not href.startswith("http"):
-            href = "https://fr.indeed.com" + href
-
-        # Company
-        company_el = (
-            card.select_one("[data-testid='company-name']")
-            or card.select_one("span.companyName")
-            or card.select_one("a.companyName")
-            or card.select_one("[class*='companyName']")
-        )
-        company = company_el.get_text(strip=True) if company_el else "Entreprise non précisée"
-
-        # Location
-        loc_el = (
-            card.select_one("[data-testid='text-location']")
-            or card.select_one("div.companyLocation")
-            or card.select_one("[class*='companyLocation']")
-        )
-        loc = loc_el.get_text(strip=True) if loc_el else location
-
-        # Salary (optional)
-        sal_el = (
-            card.select_one("[data-testid='attribute_snippet_testid']")
-            or card.select_one("div.salary-snippet-container")
-            or card.select_one("[class*='salary']")
-        )
-        salary = sal_el.get_text(strip=True) if sal_el else ""
-
-        jobs.append(Job(
-            title=title,
-            company=company,
-            location=loc,
-            url=href,
-            platform="Indeed",
-            salary=salary,
-        ))
-
-    return jobs
+try:
+    from jobspy import scrape_jobs
+    JOBSPY_OK = True
+except ImportError:
+    JOBSPY_OK = False
 
 
 class IndeedScraper(BaseScraper):
     name = "Indeed"
 
-    def __init__(self, config: dict):
-        super().__init__(config)
-        self._session = requests.Session()
-        self._session.headers.update(HEADERS)
-
     def search(self, keywords: list[str], location: str) -> list[Job]:
+        if not JOBSPY_OK:
+            log.warning(
+                "Indeed désactivé — installez la dépendance : pip install python-jobspy"
+            )
+            return []
+
         jobs: list[Job] = []
         seen_urls: set[str] = set()
-        rayon = self.config.get("localisation", {}).get("rayon_km", 50)
 
-        # One keyword per request — avoids complex OR queries that trigger blocks
-        for i, keyword in enumerate(keywords[:6]):
+        # Regroupe les mots-clés par lots de 3 pour limiter les requêtes
+        batches = [keywords[i:i+3] for i in range(0, min(len(keywords), 9), 3)]
+
+        for batch in batches:
             if len(jobs) >= self.max_results:
                 break
 
-            if i > 0:
-                time.sleep(4)  # respecter le rate-limit Indeed
-
-            params = {
-                "q":       keyword,
-                "l":       location,
-                "sort":    "date",
-                "fromage": str(self.days_back),
-                "radius":  str(rayon),
-            }
+            query = " OR ".join(f'"{kw}"' for kw in batch)
 
             try:
-                resp = self._session.get(SEARCH_URL, params=params, timeout=25)
-                resp.raise_for_status()
+                df = scrape_jobs(
+                    site_name=["indeed"],
+                    search_term=query,
+                    location=location,
+                    results_wanted=min(self.max_results, 20),
+                    hours_old=self.days_back * 24,
+                    country_indeed="France",
+                    verbose=0,
+                )
             except Exception as e:
-                log.warning(f"Indeed erreur pour '{keyword}' ({location}): {e}")
+                log.warning(f"Indeed erreur pour '{query}' ({location}): {e}")
                 continue
 
-            soup  = BeautifulSoup(resp.text, "html.parser")
-            cards = _parse_cards(soup, location)
+            if df is None or df.empty:
+                continue
 
-            if not cards:
-                log.debug(
-                    f"Indeed: aucune carte trouvée pour '{keyword}' ({location}). "
-                    "Les sélecteurs HTML ont peut-être changé."
+            for _, row in df.iterrows():
+                url = str(row.get("job_url") or "")
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+
+                salary_parts = []
+                s_min = row.get("min_amount")
+                s_max = row.get("max_amount")
+                s_cur = row.get("currency") or "€"
+                s_int = row.get("interval") or ""
+                if s_min and s_max:
+                    salary_parts = [f"{int(s_min):,} – {int(s_max):,} {s_cur}"]
+                elif s_min:
+                    salary_parts = [f"À partir de {int(s_min):,} {s_cur}"]
+                if s_int and salary_parts:
+                    salary_parts.append(f"/{s_int}")
+                salary = "".join(salary_parts)
+
+                date = str(row.get("date_posted") or "")[:10]
+                desc = str(row.get("description") or "")[:500]
+
+                job = Job(
+                    title=str(row.get("title") or "Poste inconnu"),
+                    company=str(row.get("company") or "Entreprise non précisée"),
+                    location=str(row.get("location") or location),
+                    url=url,
+                    platform=self.name,
+                    contract_type=str(row.get("job_type") or ""),
+                    salary=salary,
+                    description=desc,
+                    date_posted=date,
                 )
-
-            for job in cards[: self.max_results]:
-                if job.url not in seen_urls:
-                    seen_urls.add(job.url)
-                    jobs.append(job)
+                jobs.append(job)
 
         return jobs
