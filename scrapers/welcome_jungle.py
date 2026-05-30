@@ -6,7 +6,7 @@ from .base import BaseScraper, Job
 log = logging.getLogger(__name__)
 
 # Public Algolia credentials embedded in WTTJ's own frontend JS
-ALGOLIA_URL    = "https://csekhvms53-dsn.algolia.net/1/indexes/*/queries"
+ALGOLIA_URL    = "https://csekhvms53-1.algolianet.com/1/indexes/*/queries"
 ALGOLIA_APP_ID = "CSEKHVMS53"
 ALGOLIA_KEY    = "4bd8f6215d0cc52b26430765769e65a0"
 INDEX_NAME     = "wttj_jobs_production_fr"
@@ -34,21 +34,41 @@ ATTRS = ",".join([
     "experience_level_minimum", "description",
 ])
 
+# Coordonnées GPS des villes principales
+CITY_COORDS = {
+    "paris":              (48.8566,  2.3522),
+    "nice":               (43.7102,  7.2620),
+    "marseille":          (43.2965,  5.3698),
+    "lyon":               (45.7640,  4.8357),
+    "bordeaux":           (44.8378, -0.5792),
+    "toulouse":           (43.6047,  1.4442),
+    "lille":              (50.6292,  3.0573),
+    "sophia antipolis":   (43.6167,  7.0500),
+    "aix-en-provence":    (43.5297,  5.4474),
+    "remote":             (48.8566,  2.3522),  # fallback Paris pour remote
+}
 
-def _build_params_str(keyword: str, contract_codes: list[str], location: str) -> str:
-    filters = ['offices.country_code:"FR"']
-    if contract_codes:
-        ct_filter = " OR ".join(f'contract_type:"{c}"' for c in contract_codes)
-        filters.append(f"({ct_filter})")
+
+def _get_coords(location: str) -> tuple[float, float]:
+    return CITY_COORDS.get(location.lower().split(",")[0].strip(), (48.8566, 2.3522))
+
+
+def _build_params_str(keyword: str, contract_codes: list[str], location: str, rayon_km: int) -> str:
+    lat, lng = _get_coords(location)
+    radius_m = rayon_km * 1000
 
     parts = [
         f"query={keyword}",
-        f"filters={' AND '.join(filters)}",
+        f"aroundLatLng={lat},{lng}",
+        f"aroundRadius={radius_m}",
         "hitsPerPage=50",
         "page=0",
-        f"attributesToRetrieve=[{ATTRS}]",
-        "responseFields=[hits,nbHits,nbPages,page]",
     ]
+
+    if contract_codes:
+        ct_filter = " OR ".join(f'contract_type:"{c}"' for c in contract_codes)
+        parts.append(f"filters=({ct_filter})")
+
     return "&".join(parts)
 
 
@@ -116,6 +136,7 @@ class WelcomeJungleScraper(BaseScraper):
 
         contract_types = self.config.get("contrat", {}).get("types", [])
         contract_codes = [CONTRACT_MAP[c] for c in contract_types if c in CONTRACT_MAP]
+        rayon_km = self.config.get("localisation", {}).get("rayon_km", 50)
 
         for i, keyword in enumerate(keywords[:8]):
             if len(jobs) >= self.max_results:
@@ -124,7 +145,7 @@ class WelcomeJungleScraper(BaseScraper):
             if i > 0:
                 time.sleep(1)
 
-            params_str = _build_params_str(keyword, contract_codes, location)
+            params_str = _build_params_str(keyword, contract_codes, location, rayon_km)
             payload = {"requests": [{"indexName": INDEX_NAME, "params": params_str}]}
 
             try:
