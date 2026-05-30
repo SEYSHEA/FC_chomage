@@ -70,18 +70,7 @@ def load_config() -> dict:
 
 # ─── Search runner ───────────────────────────────────────────────────────────
 
-def run_search(config: dict, storage: Storage, notifier: DiscordNotifier, dry_run: bool = False) -> int:
-    log.info("🔍  Démarrage de la recherche d'offres…")
-
-    keywords        = config["mots_cles"]["principaux"]
-    exclude_kw      = config["mots_cles"].get("exclusions", [])
-    location        = config["localisation"]["ville"]
-    include_remote  = config["localisation"].get("inclure_remote", True)
-    contract_types  = config["contrat"]["types"]
-    min_salary      = config["salaire"].get("minimum", 0)
-    show_no_salary  = config["salaire"].get("afficher_sans_salaire", True)
-
-    # Build scraper list based on config
+def _build_scrapers(config: dict) -> list:
     scrapers = []
     ft_cfg = config["plateformes"].get("france_travail", {})
     if ft_cfg.get("active") and ft_cfg.get("client_id"):
@@ -91,71 +80,118 @@ def run_search(config: dict, storage: Storage, notifier: DiscordNotifier, dry_ru
 
     if config["plateformes"].get("indeed", {}).get("active"):
         scrapers.append(IndeedScraper(config))
-
     if config["plateformes"].get("welcome_jungle", {}).get("active"):
         scrapers.append(WelcomeJungleScraper(config))
-
     if config["plateformes"].get("linkedin", {}).get("active"):
         scrapers.append(LinkedInScraper(config))
-
     if config["plateformes"].get("engagement_jeunes", {}).get("active"):
         scrapers.append(EngagementJeunesScraper(config))
-
     if config["plateformes"].get("apec", {}).get("active"):
         scrapers.append(ApecScraper(config))
-
     if config["plateformes"].get("hellowork", {}).get("active"):
         scrapers.append(HelloWorkScraper(config))
+    return scrapers
 
+
+def _get_search_zones(config: dict) -> list[dict]:
+    """Return list of {ville, rayon_km} dicts. Falls back to single-city legacy format."""
+    loc = config.get("localisation", {})
+    zones = loc.get("zones")
+    if zones:
+        return zones
+    # Legacy single-city format
+    return [{"ville": loc.get("ville", "Paris"), "rayon_km": loc.get("rayon_km", 50)}]
+
+
+def run_search(config: dict, storage: Storage, notifier: DiscordNotifier, dry_run: bool = False) -> int:
+    log.info("🔍  Démarrage de la recherche d'offres…")
+
+    keywords       = config["mots_cles"]["principaux"]
+    exclude_kw     = config["mots_cles"].get("exclusions", [])
+    include_remote = config["localisation"].get("inclure_remote", True)
+    contract_types = config["contrat"]["types"]
+    min_salary     = config["salaire"].get("minimum", 0)
+    show_no_salary = config["salaire"].get("afficher_sans_salaire", True)
+
+    scrapers = _build_scrapers(config)
     if not scrapers:
         log.error("❌  Aucune plateforme active. Vérifiez config.yaml.")
         return 0
 
+    zones = _get_search_zones(config)
+    remote_done: set[str] = set()   # avoid duplicate remote searches per scraper
     new_jobs_total = 0
+    seen_urls: set[str] = set()     # global dedup across all zones
 
     for scraper in scrapers:
-        log.info(f"   ↳  {scraper.name}…")
-        try:
-            raw_jobs = scraper.search(keywords, location)
-        except Exception as e:
-            log.error(f"   ❌  {scraper.name}: {e}")
-            continue
+        scraper_new = 0
 
-        filtered = filter_jobs(
-            raw_jobs, keywords, exclude_kw, contract_types,
-            min_salary, show_no_salary, include_remote, location,
-        )
+        for zone in zones:
+            city = zone["ville"]
+            log.info(f"   ↳  {scraper.name} — {city}…")
 
-        for job in filtered:
-            job.relevance_score = calculate_relevance(job, keywords, exclude_kw)
-
-        # Sort best matches first
-        filtered.sort(key=lambda j: j.relevance_score, reverse=True)
-
-        new_from_scraper = 0
-        for job in filtered:
-            if storage.job_exists(job.id):
+            try:
+                raw_jobs = scraper.search(keywords, city)
+            except Exception as e:
+                log.error(f"   ❌  {scraper.name} ({city}): {e}")
                 continue
 
-            storage.save_job(job)
-            new_from_scraper += 1
-            new_jobs_total += 1
+            filtered = filter_jobs(
+                raw_jobs, keywords, exclude_kw, contract_types,
+                min_salary, show_no_salary, include_remote, city,
+            )
+            for job in filtered:
+                job.relevance_score = calculate_relevance(job, keywords, exclude_kw)
+            filtered.sort(key=lambda j: j.relevance_score, reverse=True)
 
-            stars = "⭐" * min(int(job.relevance_score), 5) or "—"
-            log.info(f"      ✅  {job.title}  |  {job.company}  |  {stars}")
+            for job in filtered:
+                if job.url in seen_urls or storage.job_exists(job.id):
+                    continue
+                seen_urls.add(job.url)
+                storage.save_job(job)
+                scraper_new += 1
+                new_jobs_total += 1
 
-            if not dry_run and notifier.is_active():
-                notifier.notify(job)
-                storage.mark_notified(job.id)
-                time.sleep(0.5)   # Respect Discord rate limit
+                stars = "⭐" * min(int(job.relevance_score), 5) or "—"
+                log.info(f"      ✅  [{city}] {job.title}  |  {job.company}  |  {stars}")
 
-        log.info(f"   ↳  {scraper.name}: {len(filtered)} filtrées, {new_from_scraper} nouvelles")
+                if not dry_run and notifier.is_active():
+                    notifier.notify(job)
+                    storage.mark_notified(job.id)
+                    time.sleep(0.5)
+
+        # Remote-only pass (once per scraper, not per zone)
+        if include_remote and scraper.name not in remote_done:
+            remote_done.add(scraper.name)
+            log.info(f"   ↳  {scraper.name} — remote…")
+            try:
+                remote_jobs = scraper.search(keywords, "remote")
+                remote_filtered = filter_jobs(
+                    remote_jobs, keywords, exclude_kw, contract_types,
+                    min_salary, show_no_salary, True, "remote",
+                )
+                for job in remote_filtered:
+                    job.relevance_score = calculate_relevance(job, keywords, exclude_kw)
+                    if job.url in seen_urls or storage.job_exists(job.id):
+                        continue
+                    seen_urls.add(job.url)
+                    storage.save_job(job)
+                    scraper_new += 1
+                    new_jobs_total += 1
+                    stars = "⭐" * min(int(job.relevance_score), 5) or "—"
+                    log.info(f"      ✅  [remote] {job.title}  |  {job.company}  |  {stars}")
+                    if not dry_run and notifier.is_active():
+                        notifier.notify(job)
+                        storage.mark_notified(job.id)
+                        time.sleep(0.5)
+            except Exception:
+                pass
+
+        log.info(f"   ↳  {scraper.name}: {scraper_new} nouvelle(s)")
 
     log.info(f"✅  Recherche terminée — {new_jobs_total} nouvelle(s) offre(s)")
-
     if not dry_run and notifier.is_active():
         notifier.send_summary(new_jobs_total, storage.count_jobs())
-
     return new_jobs_total
 
 

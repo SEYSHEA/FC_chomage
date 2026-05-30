@@ -6,48 +6,91 @@
 # ── Mots-clés de recherche ───────────────────────────────────
 mots_cles:
 
-  # Au moins un de ces mots doit apparaître dans le titre ou la description
+  # Tier 1 — Titres de poste exacts correspondant à votre profil
   principaux:
+    # Data / ML généraliste
     - "data scientist"
     - "data science"
+    - "machine learning engineer"
+    - "ML engineer"
+    - "AI engineer"
+
+    # Graph Machine Learning (spécialité Orange)
+    - "graph machine learning"
+    - "graph neural network"
+    - "GNN"
+    - "graph learning"
+    - "analyse de réseaux"
+
+    # Modélisation mathématique & stats (cœur de formation)
+    - "modélisation mathématique"
     - "statisticien"
     - "statisticienne"
+    - "statistiques appliquées"
+    - "modélisation statistique"
+    - "mathématiques appliquées"
+    - "analyste quantitatif"
+    - "analyste quantitative"
+
+    # Recherche & neurosciences (spécialité Dassault)
     - "ingénieur de recherche"
     - "ingénieure de recherche"
-    - "machine learning"
-    - "apprentissage automatique"
+    - "neurosciences computationnelles"
+    - "neuroimagerie"
+    - "modélisation cérébrale"
+
+    # Autres postes pertinents
     - "data analyst"
     - "analyste de données"
-    - "mathématiques appliquées"
-    - "modélisation statistique"
-    - "analyste quantitatif"
     - "biostatisticien"
+    - "biostatisticienne"
+    - "économètre"
+    - "actuaire"
     - "NLP"
     - "traitement du langage naturel"
     - "deep learning"
     - "intelligence artificielle"
-    - "science des données"
-    - "économètre"
-    - "actuaire"
+    - "séries temporelles"
+    - "optimisation mathématique"
+    - "recherche opérationnelle"
 
   # Les offres contenant ces mots seront IGNORÉES
   exclusions:
     - "10 ans d'expérience"
     - "15 ans d'expérience"
     - "+10 ans"
+    - "+8 ans"
     - "directeur"
+    - "director"
+    - "manager confirmé"
+    - "chef de département"
 
 
-# ── Localisation ────────────────────────────────────────────
+# ── Localisation ─────────────────────────────────────────────
 localisation:
-  ville: "Paris"          # Ville principale de recherche
-  rayon_km: 50            # Rayon de recherche en km autour de la ville
-  inclure_remote: true    # Inclure les offres en télétravail / remote
+  inclure_remote: true   # Inclure les offres full-remote (visible partout)
+
+  # Zones géographiques à couvrir
+  # Chaque zone est recherchée indépendamment — les doublons sont automatiquement supprimés
+  zones:
+    # ── Paris & Île-de-France ──────────────────────────────
+    - ville: "Paris"
+      rayon_km: 50
+
+    # ── Provence-Alpes-Côte d'Azur ────────────────────────
+    - ville: "Nice"
+      rayon_km: 40        # Couvre Nice, Biot (Dassault), Sophia Antipolis, Antibes
+
+    - ville: "Marseille"
+      rayon_km: 40        # Couvre Marseille, Aix-en-Provence
+
+  # ⚙️ Compatibilité (utilisé en dernier recours si un scraper ne supporte pas les zones)
+  ville: "Paris"
+  rayon_km: 50
 
 
-# ── Type de contrat ─────────────────────────────────────────
+# ── Type de contrat ──────────────────────────────────────────
 contrat:
-  # Commentez (avec #) les types que vous NE souhaitez PAS
   types:
     - "CDI"
     - "CDD"
@@ -57,17 +100,17 @@ contrat:
     # - "Intérim"
 
 
-# ── Salaire ─────────────────────────────────────────────────
+# ── Salaire ──────────────────────────────────────────────────
 salaire:
   minimum: 30000              # Salaire minimum en € / an (0 = pas de filtre)
   afficher_sans_salaire: true # Afficher les offres qui ne précisent pas le salaire
 
 
-# ── Paramètres de recherche ─────────────────────────────────
+# ── Paramètres de recherche ──────────────────────────────────
 recherche:
-  intervalle_minutes: 60      # Fréquence de recherche (en mode --loop)
-  max_offres_par_recherche: 30  # Offres max récupérées par plateforme
-  jours_en_arriere: 7         # Ignorer les offres plus vieilles que X jours
+  intervalle_minutes: 60
+  max_offres_par_recherche: 30
+  jours_en_arriere: 7
 
 
 # ── Plateformes ──────────────────────────────────────────────
@@ -75,53 +118,32 @@ plateformes:
 
   france_travail:
     active: true
-    # Obtenez vos clés gratuitement sur https://francetravail.io
-    # Sinon laissez vide : la plateforme sera ignorée
     client_id: ""
     client_secret: ""
 
   indeed:
-    active: true   # Pas besoin de clé API
+    active: true
 
   welcome_jungle:
-    active: true   # Pas besoin de clé API
+    active: true
 
   linkedin:
     active: true
-    # Pas besoin de compte pour les résultats de base.
-    # Pour de meilleurs résultats, ajoutez votre cookie li_at dans .env
-    # (voir .env.example pour les instructions)
-    li_at_cookie: ""   # Ou laissez vide et mettez la valeur dans .env
+    li_at_cookie: ""
 
   apec:
     active: true
-    # apec.fr — LE site des cadres en France
-    # Aucune clé API nécessaire
 
   hellowork:
     active: true
-    # hellowork.com — grand généraliste français (tech, data, ingénierie)
-    # Aucune clé API nécessaire
 
   engagement_jeunes:
     active: true
-    # engagement-jeunes.com — plateforme pour les jeunes (service civique, alternance, emploi)
-    #
-    # ⚠️  Si aucune offre n'apparaît, il faut identifier l'URL de l'API manuellement :
-    #   1. Ouvrez https://www.engagement-jeunes.com dans votre navigateur
-    #   2. Appuyez sur F12 → onglet "Réseau" (ou "Network")
-    #   3. Faites une recherche d'offres sur le site
-    #   4. Dans les requêtes réseau, cherchez un appel de type "Fetch/XHR" avec des offres en JSON
-    #   5. Copiez l'URL de base (sans les paramètres) et collez-la ci-dessous
-    api_url: ""   # Ex: "https://www.engagement-jeunes.com/api/offres"
+    api_url: ""
 
 
-# ── Notifications ────────────────────────────────────────────
+# ── Notifications ─────────────────────────────────────────────
 notifications:
   discord:
     active: true
-    # Comment obtenir votre URL Webhook Discord :
-    #  1. Ouvrez votre serveur Discord
-    #  2. Paramètres du canal (⚙️) > Intégrations > Webhooks
-    #  3. « Nouveau webhook » > Copiez l'URL webhook
-    webhook_url: ""   # Collez l'URL ici entre les guillemets
+    webhook_url: ""
