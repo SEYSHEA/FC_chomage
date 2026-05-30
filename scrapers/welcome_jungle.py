@@ -1,125 +1,93 @@
-import json
 import logging
-import re
+import time
 import requests
 from .base import BaseScraper, Job
 
 log = logging.getLogger(__name__)
 
-BASE = "https://www.welcometothejungle.com"
-SEARCH_URL = f"{BASE}/fr/jobs"
-
-CONTRACT_MAP = {
-    "CDI":        "permanent",
-    "CDD":        "temporary",
-    "Stage":      "internship",
-    "Alternance": "apprenticeship",
-    "Freelance":  "freelance",
-}
+# Public Algolia credentials embedded in WTTJ's own frontend JS
+ALGOLIA_URL    = "https://csekhvms53-dsn.algolia.net/1/indexes/*/queries"
+ALGOLIA_APP_ID = "CSEKHVMS53"
+ALGOLIA_KEY    = "4bd8f6215d0cc52b26430765769e65a0"
+INDEX_NAME     = "wttj_jobs_production_fr"
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "fr-FR,fr;q=0.9",
-    "Referer": f"{BASE}/fr/jobs",
+    "x-algolia-application-id": ALGOLIA_APP_ID,
+    "x-algolia-api-key":        ALGOLIA_KEY,
+    "Content-Type":             "application/json",
+    "Referer":                  "https://www.welcometothejungle.com/",
+    "User-Agent":               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/144.0",
 }
 
+CONTRACT_MAP = {
+    "CDI":        "FULL_TIME",
+    "CDD":        "TEMPORARY",
+    "Stage":      "INTERNSHIP",
+    "Alternance": "APPRENTICESHIP",
+    "Freelance":  "FREELANCE",
+}
 
-def _build_params(keyword: str, contract_types: list[str], include_remote: bool) -> dict:
-    params = {
-        "query": keyword,
-        "page": 1,
-    }
-    wtj_contracts = [CONTRACT_MAP[c] for c in contract_types if c in CONTRACT_MAP]
-    if wtj_contracts:
-        params["contract_type[]"] = wtj_contracts
-    if include_remote:
-        params["remote[]"] = "fulltime"
-    return params
-
-
-def _extract_jobs_from_next_data(raw_json: dict) -> list[dict]:
-    """Dig into __NEXT_DATA__ to find the jobs array."""
-    try:
-        # Path varies by WTTJ version; try several
-        props = raw_json.get("props", {})
-        page_props = props.get("pageProps", {})
-
-        # Pattern 1 : pageProps.jobs
-        jobs = page_props.get("jobs")
-        if isinstance(jobs, list) and jobs:
-            return jobs
-
-        # Pattern 2 : pageProps.searchResults.jobs
-        jobs = page_props.get("searchResults", {}).get("jobs")
-        if isinstance(jobs, list) and jobs:
-            return jobs
-
-        # Pattern 3 : pageProps.initialState.jobs.list
-        jobs = (
-            page_props.get("initialState", {})
-            .get("jobs", {})
-            .get("list")
-        )
-        if isinstance(jobs, list) and jobs:
-            return jobs
-
-        # Pattern 4 : dehydratedState queries
-        for query in page_props.get("dehydratedState", {}).get("queries", []):
-            data = query.get("state", {}).get("data", {})
-            if isinstance(data, dict):
-                jobs = data.get("jobs") or data.get("results") or data.get("data")
-                if isinstance(jobs, list) and jobs:
-                    return jobs
-
-    except Exception:
-        pass
-    return []
+ATTRS = ",".join([
+    "name", "organization.name", "organization.slug", "slug",
+    "contract_type", "salary_yearly_minimum", "salary_yearly_maximum",
+    "salary_currency", "offices", "published_at", "reference", "remote",
+    "experience_level_minimum", "description",
+])
 
 
-def _parse_job(item: dict, location: str) -> Job | None:
-    title = item.get("name") or item.get("title") or ""
+def _build_params_str(keyword: str, contract_codes: list[str], location: str) -> str:
+    filters = ['offices.country_code:"FR"']
+    if contract_codes:
+        ct_filter = " OR ".join(f'contract_type:"{c}"' for c in contract_codes)
+        filters.append(f"({ct_filter})")
+
+    parts = [
+        f"query={keyword}",
+        f"filters={' AND '.join(filters)}",
+        "hitsPerPage=50",
+        "page=0",
+        f"attributesToRetrieve=[{ATTRS}]",
+        "responseFields=[hits,nbHits,nbPages,page]",
+    ]
+    return "&".join(parts)
+
+
+def _parse_hit(hit: dict) -> Job | None:
+    title = hit.get("name") or ""
     if not title:
         return None
 
-    org = item.get("organization") or {}
-    company = org.get("name") or item.get("company_name") or "Entreprise non précisée"
-
-    org_slug = org.get("slug") or item.get("organization_slug") or ""
-    job_slug = item.get("slug") or ""
-    ref = item.get("reference") or ""
+    org        = hit.get("organization") or {}
+    company    = org.get("name") or "Entreprise non précisée"
+    org_slug   = org.get("slug") or ""
+    job_slug   = hit.get("slug") or ""
+    ref        = hit.get("reference") or ""
 
     if org_slug and job_slug:
-        url = f"{BASE}/fr/companies/{org_slug}/jobs/{job_slug}"
+        url = f"https://www.welcometothejungle.com/fr/companies/{org_slug}/jobs/{job_slug}"
         if ref:
             url += f"?q={ref}"
     else:
-        url = item.get("url") or item.get("apply_url") or ""
-    if not url:
         return None
 
-    office = item.get("office") or {}
-    city = office.get("city") or item.get("city") or location
-    country = (office.get("country") or {}).get("name_fr") or "France"
-    loc_str = f"{city}, {country}" if city else location
+    offices = hit.get("offices") or [{}]
+    city    = offices[0].get("city") or ""
+    country = (offices[0].get("country") or {}).get("name") or "France"
+    loc_str = f"{city}, {country}" if city else "France"
 
-    contract = (item.get("contract_type") or {}).get("name") or {}
-    contract_label = (
-        contract.get("fr") if isinstance(contract, dict) else str(contract)
-    )
+    contract = hit.get("contract_type") or ""
 
-    salary_min = item.get("salary_minimum")
-    salary_max = item.get("salary_maximum")
-    currency = item.get("salary_currency", "€")
-    salary_str = ""
-    if salary_min and salary_max:
-        salary_str = f"{salary_min:,} – {salary_max:,} {currency}/an"
-    elif salary_min:
-        salary_str = f"À partir de {salary_min:,} {currency}/an"
+    sal_min  = hit.get("salary_yearly_minimum")
+    sal_max  = hit.get("salary_yearly_maximum")
+    currency = hit.get("salary_currency") or "€"
+    salary   = ""
+    if sal_min and sal_max:
+        salary = f"{int(sal_min):,} – {int(sal_max):,} {currency}/an"
+    elif sal_min:
+        salary = f"À partir de {int(sal_min):,} {currency}/an"
+
+    date = str(hit.get("published_at") or "")[:10]
+    desc = str(hit.get("description") or "")[:500]
 
     return Job(
         title=str(title),
@@ -127,10 +95,10 @@ def _parse_job(item: dict, location: str) -> Job | None:
         location=loc_str,
         url=url,
         platform="Welcome to the Jungle",
-        contract_type=str(contract_label or ""),
-        salary=salary_str,
-        description=str(item.get("description", ""))[:500],
-        date_posted=str(item.get("published_at", ""))[:10],
+        contract_type=str(contract),
+        salary=salary,
+        description=desc,
+        date_posted=date,
     )
 
 
@@ -146,51 +114,30 @@ class WelcomeJungleScraper(BaseScraper):
         jobs: list[Job] = []
         seen_urls: set[str] = set()
 
-        cfg = self.config
-        contract_types = cfg.get("contrat", {}).get("types", [])
-        include_remote = cfg.get("localisation", {}).get("inclure_remote", True)
+        contract_types = self.config.get("contrat", {}).get("types", [])
+        contract_codes = [CONTRACT_MAP[c] for c in contract_types if c in CONTRACT_MAP]
 
-        for keyword in keywords[:8]:
+        for i, keyword in enumerate(keywords[:8]):
             if len(jobs) >= self.max_results:
                 break
 
-            params = _build_params(keyword, contract_types, include_remote)
+            if i > 0:
+                time.sleep(1)
+
+            params_str = _build_params_str(keyword, contract_codes, location)
+            payload = {"requests": [{"indexName": INDEX_NAME, "params": params_str}]}
 
             try:
-                resp = self._session.get(SEARCH_URL, params=params, timeout=25)
+                resp = self._session.post(ALGOLIA_URL, json=payload, timeout=20)
                 resp.raise_for_status()
+                data = resp.json()
             except Exception as e:
                 log.warning(f"Welcome to the Jungle erreur pour '{keyword}': {e}")
                 continue
 
-            # Extract __NEXT_DATA__ embedded JSON
-            match = re.search(
-                r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
-                resp.text,
-                re.DOTALL,
-            )
-            if not match:
-                log.warning(
-                    f"Welcome to the Jungle: __NEXT_DATA__ introuvable pour '{keyword}'. "
-                    "Le site a peut-être changé de structure."
-                )
-                continue
-
-            try:
-                next_data = json.loads(match.group(1))
-            except json.JSONDecodeError:
-                log.warning(f"Welcome to the Jungle: JSON invalide pour '{keyword}'")
-                continue
-
-            raw_jobs = _extract_jobs_from_next_data(next_data)
-            if not raw_jobs:
-                log.debug(
-                    f"Welcome to the Jungle: aucune offre dans __NEXT_DATA__ pour '{keyword}'. "
-                    f"Clés disponibles: {list((next_data.get('props') or {}).get('pageProps', {}).keys())}"
-                )
-
-            for item in raw_jobs[: self.max_results]:
-                job = _parse_job(item, location)
+            hits = (data.get("results") or [{}])[0].get("hits") or []
+            for hit in hits[: self.max_results]:
+                job = _parse_hit(hit)
                 if job and job.url not in seen_urls:
                     seen_urls.add(job.url)
                     jobs.append(job)
