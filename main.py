@@ -21,7 +21,6 @@ import yaml
 from database.storage import Storage
 from notifiers.discord import DiscordNotifier
 from scrapers.apec import ApecScraper
-from scrapers.engagement_jeunes import EngagementJeunesScraper
 from scrapers.france_travail import FranceTravailScraper
 from scrapers.hellowork import HelloWorkScraper
 from scrapers.indeed import IndeedScraper
@@ -64,8 +63,6 @@ def load_config() -> dict:
                         cfg["plateformes"]["linkedin"]["li_at_cookie"] = val
                     elif key == "DISCORD_WEBHOOK_URL" and val:
                         cfg["notifications"]["discord"]["webhook_url"] = val
-                    elif key == "ENGAGEMENT_JEUNES_COOKIES" and val:
-                        cfg["plateformes"]["engagement_jeunes"]["cookies"] = val
 
     return cfg
 
@@ -86,8 +83,6 @@ def _build_scrapers(config: dict) -> list:
         scrapers.append(WelcomeJungleScraper(config))
     if config["plateformes"].get("linkedin", {}).get("active"):
         scrapers.append(LinkedInScraper(config))
-    if config["plateformes"].get("engagement_jeunes", {}).get("active"):
-        scrapers.append(EngagementJeunesScraper(config))
     if config["plateformes"].get("apec", {}).get("active"):
         scrapers.append(ApecScraper(config))
     if config["plateformes"].get("hellowork", {}).get("active"):

@@ -137,10 +137,6 @@ plateformes:
   hellowork:
     active: true
 
-  engagement_jeunes:
-    active: true
-    api_url: ""
-
 
 # ── Notifications ─────────────────────────────────────────────
 notifications:
