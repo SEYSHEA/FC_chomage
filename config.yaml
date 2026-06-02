@@ -21,6 +21,7 @@ mots_cles:
     - "GNN"
     - "graph learning"
     - "analyse de réseaux"
+    - "Fraude"
 
     # Modélisation mathématique & stats (cœur de formation)
     - "modélisation mathématique"
@@ -102,7 +103,7 @@ contrat:
 
 # ── Salaire ──────────────────────────────────────────────────
 salaire:
-  minimum: 30000              # Salaire minimum en € / an (0 = pas de filtre)
+  minimum: 0             # Salaire minimum en € / an (0 = pas de filtre)
   afficher_sans_salaire: true # Afficher les offres qui ne précisent pas le salaire
 
 
