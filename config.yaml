@@ -96,10 +96,10 @@ contrat:
   types:
     - "CDI"
     - "CDD"
-    - "Stage"
-    - "Alternance"
+    # - "Stage"
+    # - "Alternance"
     # - "Freelance"
-    # - "Intérim"
+    - "Intérim"
 
 
 # ── Salaire ──────────────────────────────────────────────────
