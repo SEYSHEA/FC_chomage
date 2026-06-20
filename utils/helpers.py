@@ -85,14 +85,30 @@ def _is_remote_or_local(job: Job, city: str, include_remote: bool) -> bool:
     loc = normalize(job.location)
     city_norm = normalize(city)
 
-    if city_norm in loc:
+    # Correspondances régionales étendues
+    REGIONAL = {
+        "paris":     ["paris", "ile-de-france", "idf", "75", "92", "93", "94", "hauts-de-seine",
+                      "seine-saint-denis", "val-de-marne", "versailles", "boulogne", "la defense",
+                      "saint-denis", "creteil", "nanterre"],
+        "nice":      ["nice", "alpes-maritimes", "cote d'azur", "cote d azur", "06", "grasse",
+                      "sophia antipolis", "antibes", "cannes", "menton", "biot", "valbonne"],
+        "marseille": ["marseille", "bouches-du-rhone", "13", "aix-en-provence", "aix en provence",
+                      "aubagne", "martigues"],
+    }
+
+    synonyms = REGIONAL.get(city_norm, [city_norm])
+    if any(s in loc for s in synonyms):
         return True
-    remote_keywords = ["remote", "telétravail", "teletravail", "à distance", "a distance", "full remote"]
+
+    remote_keywords = ["remote", "teletravail", "tele-travail", "a distance", "full remote",
+                       "100% remote", "full-remote"]
     if include_remote and any(rk in loc for rk in remote_keywords):
         return True
-    # If location field is empty/unknown, include it
-    if not job.location or job.location.strip() in ("", "France"):
+
+    # Localisation vide ou générique → on garde
+    if not job.location.strip() or job.location.strip() in ("France", "FR"):
         return True
+
     return False
 
 
@@ -123,6 +139,9 @@ def filter_jobs(
             continue
         # Salary filter
         if not _exceeds_min_salary(job, min_salary, show_no_salary):
+            continue
+        # Location filter — exclut les postes à l'étranger
+        if city and not _is_remote_or_local(job, city, include_remote):
             continue
         result.append(job)
     return result
