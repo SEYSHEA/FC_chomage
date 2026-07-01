@@ -52,6 +52,7 @@ mots_cles:
     - "séries temporelles"
     - "optimisation mathématique"
     - "recherche opérationnelle"
+    - "bac+4"
 
   # Les offres contenant ces mots seront IGNORÉES
   exclusions:
@@ -67,6 +68,13 @@ mots_cles:
     - "apprentissage"
     - "AI engineer"
     - "ai engineer"
+    - "bac+5"
+    - "bac +5"
+    - "bac5"
+    - "master 2 exigé"
+    - "master 2 requis"
+    - "m2 exigé"
+    - "m2 requis"
 
 
 # ── Localisation ─────────────────────────────────────────────
